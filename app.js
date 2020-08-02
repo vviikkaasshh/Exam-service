@@ -5,6 +5,8 @@ const cors = require('cors');
 const logger = require('./config/logger');
 const fileUpload = require('express-fileupload');
 
+var routes = require('./server/routes/routes.js')
+
 const app = express();
 
 // enable files upload
@@ -20,8 +22,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.use('/', indexRouter);
-app.use('/api',apiRoutes);
+app.use('/api',routes);
 
 
 
