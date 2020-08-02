@@ -1,0 +1,82 @@
+const fs = require('fs');
+const http = require('http');
+const https = require('https');
+
+const Promise = require('bluebird');
+const mongoose = require('mongoose');
+const cluster = require('cluster');
+const cpuCount = require('os').cpus().length;
+
+const enviroment = process.argv[2] || 'development'
+const dotenv = require('dotenv');
+dotenv.config({
+  path:`${__dirname}/../config/.env.${enviroment}`,
+  node_env: process.argv[2] || 'development'
+});
+const debugAppName = `${process.env.AppName}`;
+process.env['DEBUG'] = debugAppName;
+const debug = require('debug')('school-service:app');
+
+const babelPolyfill = require('babel-polyfill');
+global.connectedSocketsList = [];
+global.socketInstance = {};
+const app = require('../app');
+const socketIO = require('../socket');
+
+const server = http.createServer(app);
+socketIO(server);
+
+const dbOptions = {
+  useNewUrlParser: true,
+  useCreateIndex: true,
+  useFindAndModify: false,
+  autoIndex: false, // Don't build indexes
+  reconnectTries: Number.MAX_VALUE, // Never stop trying to reconnect
+  reconnectInterval: 500, // Reconnect every 500ms
+  poolSize: 10, // Maintain up to 10 socket connections
+  // If not connected, return errors immediately rather than waiting for reconnect
+  bufferMaxEntries: 0,
+  connectTimeoutMS: 10000, // Give up initial connection after 10 seconds
+  socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
+  family: 4 // Use IPv4, skip trying IPv6
+};
+
+Promise.promisifyAll(mongoose);
+mongoose.connect(process.env.DB_HOST, dbOptions);
+
+let i = 0;
+
+if (cluster.isMaster && ['local', 'test', 'development', 'production'].indexOf(process.env.NODE_ENV) === -1) {
+  console.log('Create a worker for each CPU');
+  // Create a worker for each CPU
+  for (i = 0; i < cpuCount; i += 1) {
+    cluster.fork();
+  }
+
+  cluster.on('online', (worker) => {
+    debug('Worker %d online ', worker.id);
+  }
+  );
+
+  cluster.on('exit', (worker) => {
+    debug('Worker %d died :(', worker.id);
+    cluster.fork();
+  }
+  );
+} else {
+  const port = process.env.PORT || 4001;
+  if(process.argv[2]){
+    const privateKey  = fs.readFileSync('/home/pioneerpublic/ssl/keys/d69fa_b0e8d_18f332f077f6cdcaafb21c3a7b2af2b6.key', 'utf8');
+    const certificate = fs.readFileSync('/home/pioneerpublic/ssl/certs/pioneerpublicschool_in_d69fa_b0e8d_1581724799_61357fb180ee2caa01de204a0f844650.crt', 'utf8');
+    const credentials = {key: privateKey, cert: certificate};
+    const httpsServer = https.createServer(credentials, app);
+    httpsServer.listen(port,()=>{
+      console.log('Production server running on port: ', port);
+    });
+  } else {
+    server.listen(port, () => {
+      debug(`server started on port ${port} (${process.env.NODE_ENV})`);
+    });
+  }
+  
+}
